@@ -21,6 +21,7 @@ return new class extends Migration
             $table->dateTime('date_inscription')->useCurrent();
             $table->dateTime('dernier_connexion')->nullable();
             $table->boolean('actif')->default(true);
+            $table->string('type');
             $table->rememberToken();
             $table->timestamps();
         });

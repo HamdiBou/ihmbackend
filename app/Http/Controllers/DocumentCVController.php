@@ -1,110 +1,59 @@
 <?php
 
 namespace App\Http\Controllers;
-
 use App\Models\DocumentCV;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Validator;
-
 class DocumentCVController extends Controller
 {
-    public function index()
+    public function upload(Request $request)
     {
-        return DocumentCV::where('job_seeker_id', Auth::id())
-                        ->latest()
-                        ->get();
-    }
-
-    public function store(Request $request)
-    {
-        $validator = Validator::make($request->all(), [
-            'cv' => 'required|file|mimes:pdf,doc,docx|max:2048',
-            'title' => 'required|string|max:255'
+        $request->validate([
+            'cv' => 'required|file|mimes:pdf,doc,docx|max:10240',
         ]);
 
-        if ($validator->fails()) {
-            return response()->json($validator->errors(), 422);
-        }
+        $chercheurEmploi = Auth::user()->chercheurEmploi;
+        $cv = $chercheurEmploi->importCV($request);
 
-        try {
-            $file = $request->file('cv');
-            $path = $file->store('cvs/' . Auth::id());
+        // Extract text and analyze the CV
+        $cv->extraireTexte();
+        $competences = $cv->analyserCompetences();
 
-            $cv = DocumentCV::create([
-                'job_seeker_id' => Auth::id(),
-                'storage_path' => $path,
-                'file_name' => $file->getClientOriginalName(),
-                'title' => $request->title,
-                'mime_type' => $file->getMimeType(),
-                'size' => $file->getSize()
+        // Update or create a professional profile
+        $profil = $chercheurEmploi->profilProfessionnel;
+        if (!$profil) {
+            $profil = $chercheurEmploi->profilProfessionnel()->create([
+                'titre' => $chercheurEmploi->utilisateur->nom . ' ' . $chercheurEmploi->utilisateur->prenom,
+                'extracted_from_cv' => true,
             ]);
-
-            return response()->json($cv, 201);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Error uploading CV',
-                'error' => $e->getMessage()
-            ], 500);
         }
+
+        // Try to generate profile data from CV
+        $profil->genererDepuisCV($cv);
+
+        return redirect()->back()->with('success', 'CV uploadé avec succès');
     }
 
-    public function show($id)
+    public function download(DocumentCV $cv)
     {
-        $cv = DocumentCV::where('id', $id)
-            ->where('job_seeker_id', Auth::id())
-            ->first();
+        // Check if the user is authorized to download this CV
+        $this->authorize('view', $cv);
 
-        if (!$cv) {
-            return response()->json(['message' => 'CV not found'], 404);
-        }
-
-        return response()->json($cv);
+        return Storage::download($cv->chemin_stockage, $cv->nom_fichier);
     }
 
-    public function download($id)
+    public function delete(DocumentCV $cv)
     {
-        $cv = DocumentCV::where('id', $id)
-            ->where('job_seeker_id', Auth::id())
-            ->first();
+        // Check if the user is authorized to delete this CV
+        $this->authorize('delete', $cv);
 
-        if (!$cv) {
-            return response()->json(['message' => 'CV not found'], 404);
-        }
+        // Delete the file
+        Storage::delete($cv->chemin_stockage);
 
-        if (!Storage::exists($cv->storage_path)) {
-            return response()->json(['message' => 'File not found'], 404);
-        }
+        // Delete the record
+        $cv->delete();
 
-        return Storage::download($cv->storage_path, $cv->file_name);
-    }
-
-    public function destroy($id)
-    {
-        $cv = DocumentCV::where('id', $id)
-            ->where('job_seeker_id', Auth::id())
-            ->first();
-
-        if (!$cv) {
-            return response()->json(['message' => 'CV not found'], 404);
-        }
-
-        try {
-            if (Storage::exists($cv->storage_path)) {
-                Storage::delete($cv->storage_path);
-            }
-
-            $cv->delete();
-
-            return response()->json(['message' => 'CV deleted successfully']);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Error deleting CV',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+        return redirect()->back()->with('success', 'CV supprimé avec succès');
     }
 }

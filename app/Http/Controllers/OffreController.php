@@ -3,127 +3,229 @@
 namespace App\Http\Controllers;
 
 use App\Models\Offre;
+use App\Models\Specialite;
+use App\Models\Competence;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Validator;
 
 class OffreController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        return Offre::where('statut', 'active')
-                   ->with('employer')
-                   ->paginate(10);
+        $query = Offre::with(['entreprise', 'specialites', 'competences'])
+            ->where('statut', 'active')
+            ->where('date_limite', '>=', now());
+
+        // Apply filters if provided
+        if ($request->filled('titre')) {
+            $query->where('titre', 'like', '%' . $request->titre . '%');
+        }
+
+        if ($request->filled('lieu')) {
+            $query->where('lieu_travail', 'like', '%' . $request->lieu . '%');
+        }
+
+        if ($request->filled('type_contrat')) {
+            $query->where('type_contrat', $request->type_contrat);
+        }
+
+        if ($request->filled('specialite')) {
+            $query->whereHas('specialites', function($q) use ($request) {
+                $q->where('specialites.id', $request->specialite);
+            });
+        }
+
+        $offres = $query->latest()->paginate(15);
+        $specialites = Specialite::all();
+
+        return view('offres.index', compact('offres', 'specialites'));
+    }
+
+    public function show(Offre $offre)
+    {
+        // Increment view count
+        $offre->increment('nombre_vues');
+
+        // Calculate match score if user is a job seeker with an active CV
+        $matchScore = null;
+        if (Auth::check() && Auth::user()->type === 'chercheur_emploi') {
+            $chercheur = Auth::user()->chercheurEmploi;
+            $activeCV = $chercheur->activeCV();
+            if ($activeCV) {
+                $matchScore = $offre->calculerMatchScore($activeCV);
+            }
+        }
+
+        return view('offres.show', compact('offre', 'matchScore'));
+    }
+
+    public function create()
+    {
+        // Check if user is a recruiter
+        if (Auth::user()->type !== 'recruteur') {
+            return redirect()->route('home')->with('error', 'Accès non autorisé');
+        }
+
+        $specialites = Specialite::all();
+        $competences = Competence::all();
+
+        return view('offres.create', compact('specialites', 'competences'));
     }
 
     public function store(Request $request)
     {
-        $validator = Validator::make($request->all(), [
+        // Check if user is a recruiter
+        if (Auth::user()->type !== 'recruteur') {
+            return redirect()->route('home')->with('error', 'Accès non autorisé');
+        }
+
+        $request->validate([
             'titre' => 'required|string|max:255',
             'description' => 'required|string',
-            'competences_requises' => 'required|array',
             'date_limite' => 'required|date|after:today',
-            'type_emploi' => 'required|string',
-            'localisation' => 'required|string'
+            'salaire_min' => 'nullable|numeric|min:0',
+            'salaire_max' => 'nullable|numeric|gte:salaire_min',
+            'type_contrat' => 'required|string',
+            'lieu_travail' => 'required|string',
+            'niveau_etudes_requis' => 'nullable|string',
+            'experience_requise' => 'nullable|string',
+            'specialites' => 'required|array',
+            'specialites.*' => 'exists:specialites,id',
+            'competences' => 'required|array',
+            'competences.*' => 'exists:competences,id',
         ]);
 
-        if ($validator->fails()) {
-            return response()->json($validator->errors(), 422);
-        }
+        $recruteur = Auth::user()->recruteur;
 
-        $employer = Auth::user()->employer;
-
-        if (!$employer) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
+        // Create the job offer
         $offre = Offre::create([
-            'employer_id' => $employer->id,
+            'titre' => $request->titre,
+            'description' => $request->description,
+            'date_publication' => now(),
+            'date_limite' => $request->date_limite,
+            'salaire_min' => $request->salaire_min,
+            'salaire_max' => $request->salaire_max,
+            'type_contrat' => $request->type_contrat,
+            'lieu_travail' => $request->lieu_travail,
+            'niveau_etudes_requis' => $request->niveau_etudes_requis,
+            'experience_requise' => $request->experience_requise,
+            'entreprise_id' => $recruteur->entreprise_id,
+            'recruteur_id' => $recruteur->id,
             'statut' => 'active',
-            ...$request->validated()
         ]);
 
-        return response()->json($offre, 201);
+        // Attach specialties and competencies
+        $offre->specialites()->attach($request->specialites);
+        $offre->competences()->attach($request->competences);
+
+        return redirect()->route('offres.show', $offre)->with('success', 'Offre publiée avec succès');
     }
 
-    public function show($id)
+    public function edit(Offre $offre)
     {
-        $offre = Offre::with('employer')->find($id);
-
-        if (!$offre) {
-            return response()->json(['message' => 'Offre not found'], 404);
+        // Check if user is the owner of this job offer
+        if (Auth::user()->recruteur->id !== $offre->recruteur_id) {
+            return redirect()->route('home')->with('error', 'Accès non autorisé');
         }
 
-        return response()->json($offre);
+        $specialites = Specialite::all();
+        $competences = Competence::all();
+
+        return view('offres.edit', compact('offre', 'specialites', 'competences'));
     }
 
-    public function update(Request $request, $id)
+    public function update(Request $request, Offre $offre)
     {
-        $offre = Offre::find($id);
-
-        if (!$offre) {
-            return response()->json(['message' => 'Offre not found'], 404);
+        // Check if user is the owner of this job offer
+        if (Auth::user()->recruteur->id !== $offre->recruteur_id) {
+            return redirect()->route('home')->with('error', 'Accès non autorisé');
         }
 
-        if ($offre->employer_id !== Auth::user()->employer->id) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
-        $validator = Validator::make($request->all(), [
-            'titre' => 'string|max:255',
-            'description' => 'string',
-            'competences_requises' => 'array',
-            'date_limite' => 'date|after:today',
-            'type_emploi' => 'string',
-            'localisation' => 'string',
-            'statut' => 'in:active,inactive'
+        $request->validate([
+            'titre' => 'required|string|max:255',
+            'description' => 'required|string',
+            'date_limite' => 'required|date|after:today',
+            'salaire_min' => 'nullable|numeric|min:0',
+            'salaire_max' => 'nullable|numeric|gte:salaire_min',
+            'type_contrat' => 'required|string',
+            'lieu_travail' => 'required|string',
+            'niveau_etudes_requis' => 'nullable|string',
+            'experience_requise' => 'nullable|string',
+            'specialites' => 'required|array',
+            'specialites.*' => 'exists:specialites,id',
+            'competences' => 'required|array',
+            'competences.*' => 'exists:competences,id',
+            'statut' => 'required|in:active,inactive',
         ]);
 
-        if ($validator->fails()) {
-            return response()->json($validator->errors(), 422);
-        }
+        // Update the job offer
+        $offre->update([
+            'titre' => $request->titre,
+            'description' => $request->description,
+            'date_limite' => $request->date_limite,
+            'salaire_min' => $request->salaire_min,
+            'salaire_max' => $request->salaire_max,
+            'type_contrat' => $request->type_contrat,
+            'lieu_travail' => $request->lieu_travail,
+            'niveau_etudes_requis' => $request->niveau_etudes_requis,
+            'experience_requise' => $request->experience_requise,
+            'statut' => $request->statut,
+        ]);
 
-        $offre->update($request->validated());
+        // Sync specialties and competencies
+        $offre->specialites()->sync($request->specialites);
+        $offre->competences()->sync($request->competences);
 
-        return response()->json($offre);
+        return redirect()->route('offres.show', $offre)->with('success', 'Offre mise à jour avec succès');
     }
 
-    public function destroy($id)
+    public function destroy(Offre $offre)
     {
-        $offre = Offre::find($id);
-
-        if (!$offre) {
-            return response()->json(['message' => 'Offre not found'], 404);
+        // Check if user is the owner of this job offer
+        if (Auth::user()->recruteur->id !== $offre->recruteur_id) {
+            return redirect()->route('home')->with('error', 'Accès non autorisé');
         }
 
-        if ($offre->employer_id !== Auth::user()->employer->id) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
+        // Instead of deleting, change status to 'fermée'
+        $offre->update(['statut' => 'fermée']);
 
-        $offre->delete();
-
-        return response()->json(['message' => 'Offre deleted successfully']);
+        return redirect()->route('recruteur.offres')->with('success', 'Offre fermée avec succès');
     }
 
-    public function employerOffres()
+    public function duplicate(Offre $offre)
     {
-        $employer = Auth::user()->employer;
-        return Offre::where('employer_id', $employer->id)
-                   ->paginate(10);
+        // Check if user is the owner of this job offer
+        if (Auth::user()->recruteur->id !== $offre->recruteur_id) {
+            return redirect()->route('home')->with('error', 'Accès non autorisé');
+        }
+
+        // Clone the job offer
+        $newOffre = $offre->replicate();
+        $newOffre->titre = "Copie de " . $offre->titre;
+        $newOffre->date_publication = now();
+        $newOffre->date_limite = now()->addMonth();
+        $newOffre->nombre_vues = 0;
+        $newOffre->save();
+
+        // Clone relationships
+        $newOffre->specialites()->attach($offre->specialites()->pluck('specialites.id'));
+        $newOffre->competences()->attach($offre->competences()->pluck('competences.id'));
+
+        return redirect()->route('offres.edit', $newOffre)->with('success', 'Offre dupliquée avec succès');
     }
 
-    public function offreCandidatures($id)
+    public function myOffers()
     {
-        $offre = Offre::find($id);
-
-        if (!$offre) {
-            return response()->json(['message' => 'Offre not found'], 404);
+        // Check if user is a recruiter
+        if (Auth::user()->type !== 'recruteur') {
+            return redirect()->route('home')->with('error', 'Accès non autorisé');
         }
 
-        if ($offre->employer_id !== Auth::user()->employer->id) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
+        $offres = Auth::user()->recruteur->offres()
+            ->withCount('candidatures')
+            ->latest()
+            ->paginate(10);
 
-        return $offre->candidatures()->with('jobSeeker')->paginate(10);
+        return view('offres.my-offers', compact('offres'));
     }
 }

@@ -13,7 +13,15 @@ return new class extends Migration
     {
         Schema::create('experience_professionnelles', function (Blueprint $table) {
             $table->id();
+            $table->unsignedBigInteger('profil_id');
+            $table->string('poste');
+            $table->string('entreprise');
+            $table->date('date_debut');
+            $table->date('date_fin')->nullable();
+            $table->text('description')->nullable();
             $table->timestamps();
+
+            $table->foreign('profil_id')->references('id')->on('profil_professionnels')->onDelete('cascade');
         });
     }
 

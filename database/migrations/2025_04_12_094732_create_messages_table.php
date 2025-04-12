@@ -9,11 +9,20 @@ return new class extends Migration
     /**
      * Run the migrations.
      */
-    public function up(): void
+    public function up()
     {
         Schema::create('messages', function (Blueprint $table) {
             $table->id();
+            $table->string('sujet');
+            $table->text('contenu');
+            $table->unsignedBigInteger('expediteur_id');
+            $table->unsignedBigInteger('destinataire_id');
+            $table->boolean('lu')->default(false);
+            $table->timestamp('date_envoi');
             $table->timestamps();
+
+            $table->foreign('expediteur_id')->references('id')->on('utilisateurs');
+            $table->foreign('destinataire_id')->references('id')->on('utilisateurs');
         });
     }
 

@@ -27,12 +27,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/candidatures/{id}', [CandidatureController::class, 'destroy']);
     });
 
-    // Employer routes
-    Route::middleware('employer')->group(function () {
+
+    // Enterprise routes
+    Route::middleware('enterprise')->group(function () {
         Route::post('/offres', [OffreController::class, 'store']);
         Route::put('/offres/{id}', [OffreController::class, 'update']);
         Route::delete('/offres/{id}', [OffreController::class, 'destroy']);
-        Route::get('/offres/mes-offres', [OffreController::class, 'employerOffres']);
+        Route::get('/offres/mes-offres', [OffreController::class, 'enterpriseOffres']);
         Route::get('/offres/{id}/candidatures', [OffreController::class, 'offreCandidatures']);
     });
 });

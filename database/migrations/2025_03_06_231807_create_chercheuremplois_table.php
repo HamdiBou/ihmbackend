@@ -11,9 +11,19 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('chercheuremplois', function (Blueprint $table) {
+        Schema::create('chercheurs_emploi', function (Blueprint $table) {
             $table->id();
+            $table->unsignedBigInteger('utilisateur_id');
+            $table->string('niveau_etudes')->nullable();
+            $table->integer('annees_experience')->nullable();
+            $table->string('disponibilite')->nullable();
+            $table->string('preference_emploi')->nullable();
+            $table->decimal('salaire_attendu_min', 10, 2)->nullable();
+            $table->decimal('salaire_attendu_max', 10, 2)->nullable();
+            $table->string('mobilite')->nullable();
             $table->timestamps();
+
+            $table->foreign('utilisateur_id')->references('id')->on('users')->onDelete('cascade');
         });
     }
 

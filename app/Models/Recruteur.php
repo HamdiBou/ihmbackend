@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Recruteur extends Model
 {
-    protected $fillable = ['user_id', 'poste', 'entreprise_id'];
+    protected $guarded = [];
 
     public function user()
     {

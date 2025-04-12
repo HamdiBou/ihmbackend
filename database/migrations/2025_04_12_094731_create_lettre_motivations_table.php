@@ -11,9 +11,15 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('lettre_motivations', function (Blueprint $table) {
+        Schema::create('lettres_motivation', function (Blueprint $table) {
             $table->id();
+            $table->unsignedBigInteger('chercheur_emploi_id');
+            $table->string('titre');
+            $table->text('contenu');
+            $table->date('date_creation');
             $table->timestamps();
+
+            $table->foreign('chercheur_emploi_id')->references('id')->on('chercheurs_emploi')->onDelete('cascade');
         });
     }
 

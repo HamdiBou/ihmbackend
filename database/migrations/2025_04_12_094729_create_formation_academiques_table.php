@@ -13,7 +13,15 @@ return new class extends Migration
     {
         Schema::create('formation_academiques', function (Blueprint $table) {
             $table->id();
+            $table->unsignedBigInteger('profil_id');
+            $table->string('diplome');
+            $table->string('etablissement');
+            $table->date('date_debut');
+            $table->date('date_fin')->nullable();
+            $table->text('description')->nullable();
             $table->timestamps();
+
+            $table->foreign('profil_id')->references('id')->on('profil_professionnels')->onDelete('cascade');
         });
     }
 
