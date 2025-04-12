@@ -45,4 +45,23 @@ class User extends Authenticatable
             'password' => 'hashed',
         ];
     }
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    // In User model
+    public function recruteur()
+    {
+        return $this->hasOne(Recruteur::class);
+    }
+    public function chercheurEmploi()
+    {
+        return $this->hasOne(ChercheurEmploi::class);
+    }
+
+    public function entreprise()
+    {
+        return $this->hasOne(Entreprise::class);
+    }
 }
